@@ -22,7 +22,8 @@ class ExecutorService:
             'np': np,
             'plt': plt,
             'sns': sns,
-            'final_result': None
+            'final_result': None,
+            'data_result': None
         }
 
         # Clear any existing plots
@@ -33,19 +34,26 @@ class ExecutorService:
             # Execute the code
             exec(code, {}, local_vars)
             
-            final_result = local_vars.get('final_result', "No result variable set in code.")
+            explanation = local_vars.get('final_result', "No explanation provided.")
+            data_result = local_vars.get('data_result', None)
             
+            # If data_result is a DataFrame, convert to list of dicts
+            if isinstance(data_result, pd.DataFrame):
+                data_result = data_result.head(10).to_dict(orient='records')
+
             # Check for generated plot
             plot_base64 = None
             if os.path.exists('output_plot.png'):
                 with open('output_plot.png', 'rb') as f:
-                    plot_base64 = base64.b64encode(f.read()).decode('utf-8')
+                    # Prefix with data:image/png;base64,
+                    plot_base64 = f"data:image/png;base64,{base64.b64encode(f.read()).decode('utf-8')}"
                 os.remove('output_plot.png')
 
             return {
                 "success": True,
-                "result": final_result,
-                "plot_base64": plot_base64
+                "explanation": explanation,
+                "data": data_result,
+                "chart": plot_base64
             }
         except Exception as e:
             return {

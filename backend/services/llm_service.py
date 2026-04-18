@@ -29,7 +29,7 @@ RULES:
 2. The code should assume the dataframe 'df' is already loaded.
 3. If the user asks for a visualization, use matplotlib or seaborn. Save the plot to 'output_plot.png'.
 4. Store the final textual answer in a variable named 'final_result'.
-5. If you perform an aggregation, ensure the result is stored in 'final_result' as a string or a dict.
+5. If the query results in a table or subset of data, store the DataFrame in a variable named 'data_result'.
 6. Do not import any libraries other than pandas, numpy, matplotlib, or seaborn.
 7. Be concise and efficient.
 """

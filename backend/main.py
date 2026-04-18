@@ -50,11 +50,11 @@ async def upload_dataset(file: UploadFile = File(...)):
         shutil.copyfileobj(file.file, buffer)
     
     try:
-        schema = data_service.get_schema(file.filename)
+        data_profile = data_service.get_schema(file.filename)
         return {
             "filename": file.filename,
             "status": "uploaded",
-            "schema": schema
+            "data_profile": data_profile
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -88,7 +88,6 @@ async def process_query(
         result = executor_service.execute_code(code, df)
 
         if not result["success"]:
-            # Optional: Implement retry logic here
             return {
                 "success": False,
                 "error": result["error"],
@@ -97,8 +96,9 @@ async def process_query(
 
         return {
             "success": True,
-            "answer": result["result"],
-            "plot": result["plot_base64"],
+            "explanation": result["explanation"],
+            "data": result["data"],
+            "chart": result["chart"],
             "generated_code": code
         }
 

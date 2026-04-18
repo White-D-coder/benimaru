@@ -23,13 +23,13 @@ class DataService:
         else:
             df = pd.read_excel(file_path, nrows=5)
 
-        schema = {
-            "columns": df.columns.tolist(),
-            "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
-            "sample_data": df.head(3).to_dict(orient='records'),
-            "row_count_estimate": self._estimate_row_count(file_path)
+        data_profile = {
+            "columns": [{"name": col, "type": str(df[col].dtype)} for col in df.columns],
+            "row_count": self._estimate_row_count(file_path),
+            "column_count": len(df.columns),
+            "sample_data": df.head(3).to_dict(orient='records')
         }
-        return schema
+        return data_profile
 
     def _estimate_row_count(self, file_path: str) -> int:
         # Simple estimation for CSVs
