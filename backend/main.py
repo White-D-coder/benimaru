@@ -1,33 +1,45 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import shutil
+import pandas as pd
+from dotenv import load_dotenv
+
+from services.data_service import DataService
+from services.llm_service import LLMService
+from services.executor_service import ExecutorService
+
+# Load environment variables
+load_dotenv()
 
 app = FastAPI(title="Data Analyst Assistant API")
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify your frontend URL
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Create a directory for uploaded datasets
+# Configuration
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# Initialize Services
+data_service = DataService(UPLOAD_DIR)
+llm_service = LLMService() # Assumes OPENAI_API_KEY is in environment
+executor_service = ExecutorService()
 
 @app.get("/")
 async def root():
     return {"message": "Data Analyst Assistant API is running"}
 
-from services.data_analyzer import DataAnalyzer
-
 @app.post("/upload")
 async def upload_dataset(file: UploadFile = File(...)):
     """
-    Upload and analyze a CSV/Excel file.
+    Upload a CSV/Excel file and return its schema.
     """
     if not file.filename.endswith(('.csv', '.xlsx', '.xls')):
         raise HTTPException(status_code=400, detail="Unsupported file format.")
@@ -37,67 +49,61 @@ async def upload_dataset(file: UploadFile = File(...)):
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     
-    # Analyze the data immediately
-    analysis_results = await DataAnalyzer.analyze_file(file_path)
-    
-    if "error" in analysis_results:
-        raise HTTPException(status_code=500, detail=analysis_results["error"])
-        
-    return {
-        "status": "success",
-        "data_profile": analysis_results
-    }
-
-from pydantic import BaseModel
-from services.query_engine import QueryEngine
-from services.sandbox import CodeSandbox
-from services.explanation_engine import ExplanationEngine
-
-# Initialize services
-query_engine = QueryEngine()
-sandbox = CodeSandbox()
-explanation_engine = ExplanationEngine()
-
-class QueryRequest(BaseModel):
-    filename: str
-    query: str
+    try:
+        schema = data_service.get_schema(file.filename)
+        return {
+            "filename": file.filename,
+            "status": "uploaded",
+            "schema": schema
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/query")
-async def process_query(request: QueryRequest):
+async def process_query(
+    filename: str = Body(...),
+    query: str = Body(...)
+):
     """
-    The main analysis loop: Interpret -> Execute -> Explain.
+    Process a natural language query against a specific dataset.
     """
-    file_path = os.path.join(UPLOAD_DIR, request.filename)
+    file_path = data_service.get_file_path(filename)
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Dataset not found.")
+        raise HTTPException(status_code=404, detail="Dataset not found. Please upload it first.")
 
-    # 1. Profile the data (needed for prompt context)
-    profile = await DataAnalyzer.analyze_file(file_path)
-    
-    # 2. Generate code
-    code = await query_engine.generate_code(request.query, profile)
-    
-    # 3. Execute in Sandbox
-    execution_result = await sandbox.execute_analysis(code, file_path)
-    
-    if "error" in execution_result:
+    try:
+        # 1. Get Schema
+        schema = data_service.get_schema(filename)
+
+        # 2. Generate Code
+        code = llm_service.generate_analysis_code(query, schema, filename)
+
+        # 3. Load Data
+        if filename.endswith('.csv'):
+            df = pd.read_csv(file_path)
+        else:
+            df = pd.read_excel(file_path)
+
+        # 4. Execute Code
+        result = executor_service.execute_code(code, df)
+
+        if not result["success"]:
+            # Optional: Implement retry logic here
+            return {
+                "success": False,
+                "error": result["error"],
+                "generated_code": code
+            }
+
         return {
-            "status": "error",
-            "error": execution_result["error"],
+            "success": True,
+            "answer": result["result"],
+            "plot": result["plot_base64"],
             "generated_code": code
         }
 
-    # 4. Generate human-readable explanation
-    explanation = await explanation_engine.explain_results(request.query, execution_result["data"])
-    
-    return {
-        "status": "success",
-        "query": request.query,
-        "explanation": explanation,
-        "data": execution_result["data"],
-        "chart": execution_result["chart"],
-        "generated_code": code
-    }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
